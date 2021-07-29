@@ -33,3 +33,27 @@ def test_basic():
             client=client)
     assert act_new.inc().result() == -9
 
+    # Test losing an actor by killing all workers
+    def raiser():
+        raise SystemExit
+    from pprint import pprint
+    pprint(client.scheduler_info())
+    try:
+        client.run(raiser)
+    except:
+        pass
+    pprint(client.scheduler_info())
+
+    var = dask.distributed.Variable(name='b', client=client)
+    fut = var.get(timeout=1)  # Should be fine
+    try:
+        fut.result()
+    except Exception as e:
+        assert 'Worker holding Actor was lost' in str(e)
+    else:
+        assert False and 'No exception raised?'
+
+    act_lost = dask_actor_singleton.get('b', create=lambda: MyClass(-100),
+            client=client)
+    assert act_lost.inc().result() == -99
+

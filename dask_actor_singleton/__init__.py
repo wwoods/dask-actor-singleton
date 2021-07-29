@@ -30,26 +30,8 @@ def get(name, create, client=None):
     if client is None:
         client = dask.distributed.get_client()
 
-    future = None
     var = dask.distributed.Variable(name=name, client=client)
-    try:
-        # Timeout is on scheduler node, so a low value is OK even with terrible
-        # latency.
-        future = var.get(timeout=1)
-    except asyncio.exceptions.TimeoutError:
-        # Not yet created
-        pass
-    except Exception as e:
-        # Check for transient failures
-        if 'Worker holding Actor was lost' not in e:
-            raise
-
-    actor = None
-    try:
-        actor = future.result()
-    except:
-        # Last allocation failed for some reason; try to replace
-        pass
+    actor = _try_get_actor(var)
 
     if actor is None:
         # Need to allocate, take a lock -- note that Semaphore is preferred
@@ -58,17 +40,8 @@ def get(name, create, client=None):
         lock = dask.distributed.Semaphore(name=name+'__singleton_lock',
                 scheduler_rpc=client.scheduler, loop=client.loop)
         with lock:
-            try:
-                # See if it was set between then and now
-                future = var.get(timeout=1)
-            except asyncio.exceptions.TimeoutError:
-                pass
-            else:
-                # See if last allocation failed for any reason
-                try:
-                    actor = future.result()
-                except:
-                    pass
+            # See if it was set between then and now
+            actor = _try_get_actor(var)
 
             if actor is None:
                 # Create, have lock and no existing, good Actor
@@ -81,6 +54,41 @@ def get(name, create, client=None):
             else:
                 # Retrieved successfully from previous init
                 pass
+
+    return actor
+
+
+def _try_get_actor(var):
+    """Try to get the actor from a variable. Return `None` on failure, instance
+    otherwise.
+    """
+    future = None
+    try:
+        # Timeout is on scheduler node, so a low value is OK even with terrible
+        # latency.
+        future = var.get(timeout=1)
+    except asyncio.exceptions.TimeoutError:
+        # Not yet created
+        pass
+    except Exception as e:
+        # Any other error retrieving the variable -- not the result of the
+        # future -- is probably a genuine error
+        raise
+
+    # This error shows up sometimes at future.result(); the current workflow
+    # will see it and re-allocate the singleton.
+
+    # if 'Worker holding Actor was lost' not in e:
+    #     # Some other dask error worth re-raising
+    #     raise
+
+    actor = None
+    if future is not None:
+        try:
+            actor = future.result()
+        except:
+            # Last allocation failed for some reason; try to replace
+            pass
 
     return actor
 
