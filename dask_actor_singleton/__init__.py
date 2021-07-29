@@ -2,6 +2,23 @@
 import asyncio
 import dask.distributed
 
+def discard(name, client=None):
+    """Removes, if it exists, any existing dask_singleton_actor with the
+    specified name.
+
+    Called "discard" to fit `set` semantics.
+    """
+
+    if client is None:
+        client = dask.distributed.get_client()
+
+    # Weird edge case in dask code: https://distributed.dask.org/en/latest/_modules/distributed/variable.html
+    assert client.status == 'running', "Dask client not running; will not delete correctly"
+
+    var = dask.distributed.Variable(name=name, client=client)
+    var.delete()
+
+
 def get(name, create, client=None):
     """
     Coordinates the allocation of a singleton across many workers.

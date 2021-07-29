@@ -22,9 +22,12 @@ print(actor.inc().result())  # 9
 # Now, on a different computer / dask.distributed.Client, run this script again:
 # ...
 print(actor.inc().result())  # 10
+# If ever the singleton should be deleted, one may call:
+dask_actor_singleton.discard('my_actor')
 ```
 
 History
 -------
+* 2021-07-29 v1.1 release. Supports `discard` to purge a cached singleton.
 * 2021-07-19 v1.0 release.
 

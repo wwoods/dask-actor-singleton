@@ -24,3 +24,12 @@ def test_basic():
     assert act3.inc().result() == 2
     assert act2.inc().result() == 6
 
+    # Test deletion
+    dask_actor_singleton.discard('a')
+    # Old references still work
+    assert act.inc().result() == 7
+    # But the name will not be found
+    act_new = dask_actor_singleton.get('a', create=lambda: MyClass(-10),
+            client=client)
+    assert act_new.inc().result() == -9
+
