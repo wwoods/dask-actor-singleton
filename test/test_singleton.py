@@ -1,8 +1,16 @@
 
 import dask.distributed
 import dask_actor_singleton
+import time
+
+class BadClass:
+    def __init__(self):
+        raise ValueError('something bad')
+
 
 class MyClass:
+    value = None
+
     def __init__(self, value):
         self.value = value
     def inc(self):
@@ -26,6 +34,8 @@ def test_basic():
 
     # Test deletion
     dask_actor_singleton.discard('a')
+    # Discard() doesn't happen immediately
+    time.sleep(0.1)
     # Old references still work
     assert act.inc().result() == 7
     # But the name will not be found
@@ -56,4 +66,39 @@ def test_basic():
     act_lost = dask_actor_singleton.get('b', create=lambda: MyClass(-100),
             client=client)
     assert act_lost.inc().result() == -99
+
+
+def test_exception():
+    client = dask.distributed.Client()
+
+    try:
+        act = dask_actor_singleton.get('a', create=BadClass, client=client)
+    except Exception as e:
+        assert 'something bad' in str(e)
+    else:
+        assert False and 'No exception raised?'
+
+
+def test_ttl_create():
+    client = dask.distributed.Client()
+
+    for i in range(10):
+        a = dask_actor_singleton.get('a', create=lambda: MyClass(i),
+                client=client, ttl_create=0.5)
+        time.sleep(0.1)
+    assert a.value >= 5
+
+
+def test_ttl_get():
+    client = dask.distributed.Client()
+
+    for i in range(10):
+        a = dask_actor_singleton.get('a', create=lambda: MyClass(i),
+                client=client, ttl_get=0.5)
+        time.sleep(0.1)
+    assert a.value <= 1
+    time.sleep(0.4)
+    a = dask_actor_singleton.get('a', create=lambda: MyClass(100),
+            client=client, ttl_get=0.5)
+    assert a.value == 100
 

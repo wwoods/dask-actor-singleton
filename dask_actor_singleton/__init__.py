@@ -1,12 +1,16 @@
 
 import asyncio
 import dask.distributed
+import time
 
 def discard(name, client=None):
     """Removes, if it exists, any existing dask_singleton_actor with the
-    specified name.
+    specified name. However, the variable is NOT guaranteed to be deleted before
+    an immediately following `get` call.
 
-    Called "discard" to fit `set` semantics.
+    For this reason, various ttl features are provided for `get`.
+
+    Named "discard" to fit `set` semantics.
     """
 
     if client is None:
@@ -19,21 +23,48 @@ def discard(name, client=None):
     var.delete()
 
 
-def get(name, create, client=None):
+def get(name, create, *, client=None, ttl_create=0, ttl_get=0):
     """
     Coordinates the allocation of a singleton across many workers.
 
     Returns an allocated [Actor](https://distributed.dask.org/en/latest/actors.html)
     proxy.
+
+    Args:
+        name: The exact name of the dask.distributed.Variable to be used.
+        create: The lambda to be called, which returns an instance of the Actor
+                class. Must consistently return the same result, regardless of
+                where it is called. This is for singletons, after all.
+        client: Optional; exact dask client.
+        ttl_create: If positive, a new instance will allocated if the existing
+                instance is more than this many seconds old.
+        ttl_get: If positive, a new instance will be allocated if the existing
+                instance hasn't been returned by a `get` call for more than
+                this many seconds.
     """
 
     if client is None:
         client = dask.distributed.get_client()
 
     var = dask.distributed.Variable(name=name, client=client)
-    actor = _try_get_actor(var)
+    ractor = None
 
-    if actor is None:
+    def _cached_ractor_get():
+        '''Ensures that an ractor is returned only if it abides by TTL
+        conditions AND didn't raise an error in __init__.'''
+        ractor = None
+        actor = _try_get_actor(var)
+        if actor is not None:
+            future = actor.cache_check(ttl_create, ttl_get).result()
+            if future is not None:
+                try:
+                    ractor = future.result()
+                except:
+                    pass
+        return ractor
+
+    ractor = _cached_ractor_get()
+    if ractor is None:
         # Need to allocate, take a lock -- note that Semaphore is preferred
         # to Lock due to auto-lease expiration for lost workers:
         # See https://github.com/dask/distributed/issues/2362
@@ -41,25 +72,28 @@ def get(name, create, client=None):
                 scheduler_rpc=client.scheduler, loop=client.loop)
         with lock:
             # See if it was set between then and now
-            actor = _try_get_actor(var)
-
-            if actor is None:
+            ractor = _cached_ractor_get()
+            if ractor is None:
                 # Create, have lock and no existing, good Actor
-                future = client.submit(create, actor=True)
+                #future = client.submit(create, actor=True)
+                future = client.submit(_ActorShell, create, actor=True)
                 # Allow this exception to trickle up __init__ errors
                 actor = future.result()
 
+                # Ensure that the inner actor was allocated successfully.
+                # Will raise error if it was not.
+                # Note: dask actor attribute access is implicit and blocking...
+                # so `.future` is a round trip
+                ractor = actor.future.result()
+
                 # Finally, assign on success
                 var.set(future)
-            else:
-                # Retrieved successfully from previous init
-                pass
 
-    return actor
+    return ractor
 
 
 def _try_get_actor(var):
-    """Try to get the actor from a variable. Return `None` on failure, instance
+    """Try to get the actor from a future. Return `None` on failure, instance
     otherwise.
     """
     future = None
@@ -92,4 +126,35 @@ def _try_get_actor(var):
 
     return actor
 
+
+class _ActorShell:
+    """Proxy object which tracks TTL information.
+
+    Due to the way Dask works, we'll create a type as a dynamic mixin...
+    """
+    future = None
+
+    def __init__(self, create_fn):
+        client = dask.distributed.get_client()
+        self.future = client.submit(create_fn, actor=True)
+
+        self.singleton_time_create = time.monotonic()
+        self.singleton_time_get = self.singleton_time_create
+
+
+    def cache_check(self, ttl_create, ttl_get):
+        """Check cache; if expired, return None. Else, returns the Future for
+        this actor.
+        """
+        now = time.monotonic()
+        if ttl_create > 0:
+            if now - self.singleton_time_create >= ttl_create:
+                return 1
+        if ttl_get > 0:
+            if now - self.singleton_time_get >= ttl_get:
+                return 1
+
+        # OK, update estimates
+        self.singleton_time_get = now
+        return self.future
 

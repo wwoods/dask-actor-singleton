@@ -28,6 +28,7 @@ dask_actor_singleton.discard('my_actor')
 
 History
 -------
+* 2021-07-29 v1.2.0 release. Added TTL support for `get`, and better documentation for `discard`.
 * 2021-07-29 v1.1.1 release. Fixed issue with "Working holding Actor was lost"
 * 2021-07-29 v1.1 release. Supports `discard` to purge a cached singleton.
 * 2021-07-19 v1.0 release.
