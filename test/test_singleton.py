@@ -79,6 +79,44 @@ def test_exception():
         assert False and 'No exception raised?'
 
 
+def test_priority():
+    cluster = dask.distributed.LocalCluster(n_workers=1, threads_per_worker=1)
+    client = dask.distributed.Client(cluster)
+
+    # Wait for startup
+    j = client.submit(lambda: 0, pure=False)
+    j.result()
+
+    # Now run operations that are fast, but sleep
+    def sleep(x):
+        time.sleep(x)
+    sleeps = [
+            client.submit(sleep, x, pure=False)
+            for x in [0.2] + [0.1] * 8]
+
+    # Default priority is quite high, and should happen well before other
+    # tasks.
+    s = time.monotonic()
+    e = dask_actor_singleton.get('a', create=lambda: MyClass(0),
+            client=client)
+    elapsed_e = time.monotonic() - s
+    assert elapsed_e < 0.5
+
+    # Priority only matters on create -- otherwise should be immediate
+    s = time.monotonic()
+    f = dask_actor_singleton.get('a', create=lambda: MyClass(1),
+            client=client, priority=-1)
+    elapsed_f = time.monotonic() - s
+    assert elapsed_f < 0.2
+
+    # Low priority should complete after sleeps
+    s = time.monotonic()
+    g = dask_actor_singleton.get('b', create=lambda: MyClass(2),
+            client=client, priority=-1)
+    elapsed_g = time.monotonic() - s
+    assert elapsed_g > 0.3
+
+
 def test_ttl_create():
     client = dask.distributed.Client()
 

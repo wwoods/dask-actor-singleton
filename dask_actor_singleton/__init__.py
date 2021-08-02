@@ -23,7 +23,7 @@ def discard(name, client=None):
     var.delete()
 
 
-def get(name, create, *, client=None, ttl_create=0, ttl_get=0):
+def get(name, create, *, client=None, ttl_create=0, ttl_get=0, priority=0):
     """
     Coordinates the allocation of a singleton across many workers.
 
@@ -41,6 +41,18 @@ def get(name, create, *, client=None, ttl_create=0, ttl_get=0):
         ttl_get: If positive, a new instance will be allocated if the existing
                 instance hasn't been returned by a `get` call for more than
                 this many seconds.
+
+    By default, if a new actor must be created, it is done with priority 1e6.
+
+    To change that priority, either use `dask.annotate` or pass the `priority`
+    argument:
+
+    ```python
+    with dask.annotate(priority=100):
+        dask_actor_singleton.get(...)
+    ```
+
+    A falsey value (like 0) will change to the default of 1e6.
     """
 
     if client is None:
@@ -48,6 +60,14 @@ def get(name, create, *, client=None, ttl_create=0, ttl_get=0):
 
     var = dask.distributed.Variable(name=name, client=client)
     ractor = None
+
+    if not priority:
+        try:
+            priority = dask.config.get('annotations.priority')
+        except KeyError:
+            pass
+    if not priority:
+        priority = 1e6
 
     def _cached_ractor_get():
         '''Ensures that an ractor is returned only if it abides by TTL
@@ -76,7 +96,8 @@ def get(name, create, *, client=None, ttl_create=0, ttl_get=0):
             if ractor is None:
                 # Create, have lock and no existing, good Actor
                 #future = client.submit(create, actor=True)
-                future = client.submit(_ActorShell, create, actor=True)
+                future = client.submit(_ActorShell, create, actor=True,
+                        priority=priority)
                 # Allow this exception to trickle up __init__ errors
                 actor = future.result()
 
@@ -100,7 +121,7 @@ def _try_get_actor(var):
     try:
         # Timeout is on scheduler node, so a low value is OK even with terrible
         # latency.
-        future = var.get(timeout=1)
+        future = var.get(timeout=1e-2)
     except asyncio.exceptions.TimeoutError:
         # Not yet created
         pass
@@ -136,7 +157,7 @@ class _ActorShell:
 
     def __init__(self, create_fn):
         client = dask.distributed.get_client()
-        self.future = client.submit(create_fn, actor=True)
+        self.future = client.submit(create_fn, actor=True, priority=1e6)
 
         self.singleton_time_create = time.monotonic()
         self.singleton_time_get = self.singleton_time_create
