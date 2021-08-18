@@ -28,6 +28,7 @@ dask_actor_singleton.discard('my_actor')
 
 History
 -------
+* 2021-08-18 v1.3.2 release. Explicitly forget wrapped future.
 * 2021-08-18 v1.3.1 release. Free old actor when re-allocating to potentially reduce memory load.
 * 2021-08-02 v1.3.0 release. Priority argument added to improve responsiveness alongside larger processing loads.
 * 2021-07-29 v1.2.0 release. Added TTL support for `get`, and better documentation for `discard`.

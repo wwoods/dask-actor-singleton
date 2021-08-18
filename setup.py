@@ -5,7 +5,7 @@ with open('README.md') as f:
 
 setuptools.setup(
         name='dask-actor-singleton',
-        version='1.3.1',
+        version='1.3.2',
         author='Walt Woods',
         author_email='woodswalben@gmail.com',
         description='Helper library to allocate and retrieve singleton actors in Dask',

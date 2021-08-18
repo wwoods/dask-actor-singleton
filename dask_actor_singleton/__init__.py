@@ -20,6 +20,10 @@ def discard(name, client=None):
     assert client.status == 'running', "Dask client not running; will not delete correctly"
 
     var = dask.distributed.Variable(name=name, client=client)
+    actor = _try_get_actor(var)
+    if actor is not None:
+        # Ensure it frees its wrapped future
+        actor.discard().result()
     var.delete()
 
 
@@ -168,18 +172,30 @@ class _ActorShell:
 
 
     def cache_check(self, ttl_create, ttl_get):
-        """Check cache; if expired, return None. Else, returns the Future for
-        this actor.
+        """Check cache; if expired, discard future and return None.
+        Else, returns the Future for this actor.
         """
+        if self.future is None:
+            return
+
         now = time.monotonic()
         if ttl_create > 0:
             if now - self.singleton_time_create >= ttl_create:
+                self.discard()
                 return
         if ttl_get > 0:
             if now - self.singleton_time_get >= ttl_get:
+                self.discard()
                 return
 
         # OK, update estimates
         self.singleton_time_get = now
         return self.future
+
+
+    def discard(self):
+        """Discard wrapped future, to ensure dask frees it. For whatever reason,
+        if we do not set it explicitly to `None`, dask holds onto the object.
+        """
+        self.future = None
 

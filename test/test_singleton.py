@@ -1,6 +1,8 @@
 
+import asyncio
 import dask.distributed
 import dask_actor_singleton
+import pytest
 import time
 
 class BadClass:
@@ -66,6 +68,27 @@ def test_basic():
     act_lost = dask_actor_singleton.get('b', create=lambda: MyClass(-100),
             client=client)
     assert act_lost.inc().result() == -99
+
+
+def test_cancel():
+    client = dask.distributed.Client()
+
+    var = dask.distributed.Variable('a', client=client)
+    act = dask_actor_singleton.get('a', create=lambda: MyClass(0))
+
+    assert act.inc().result() == 1
+    future = var.get(timeout=1e-2)
+
+    dask_actor_singleton.discard('a')
+    time.sleep(0.1)
+
+    with pytest.raises(asyncio.exceptions.TimeoutError):
+        var.get(timeout=1e-2)
+
+    wrapped_ft = future.result().future
+    assert wrapped_ft is None
+
+    assert act.inc().result() == 2
 
 
 def test_exception():
