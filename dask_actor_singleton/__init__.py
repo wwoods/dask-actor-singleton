@@ -94,6 +94,10 @@ def get(name, create, *, client=None, ttl_create=0, ttl_get=0, priority=0):
             # See if it was set between then and now
             ractor = _cached_ractor_get()
             if ractor is None:
+                # First, allow dask to free up the old version by losing the
+                # reference to the actor.
+                var.delete()
+
                 # Create, have lock and no existing, good Actor
                 #future = client.submit(create, actor=True)
                 future = client.submit(_ActorShell, create, actor=True,
@@ -170,10 +174,10 @@ class _ActorShell:
         now = time.monotonic()
         if ttl_create > 0:
             if now - self.singleton_time_create >= ttl_create:
-                return 1
+                return
         if ttl_get > 0:
             if now - self.singleton_time_get >= ttl_get:
-                return 1
+                return
 
         # OK, update estimates
         self.singleton_time_get = now
