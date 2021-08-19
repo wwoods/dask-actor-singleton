@@ -102,6 +102,31 @@ def test_exception():
         assert False and 'No exception raised?'
 
 
+def test_get_ttl_slow():
+    """Ensure that an __init__ that takes longer than ttl_get() does not keep
+    creating new instances.
+    """
+    client = dask.distributed.Client()
+
+    class Act:
+        def __init__(self):
+            time.sleep(1.)
+            with dask.distributed.worker_client() as c:
+                v = dask.distributed.Variable('count', client=c)
+                try:
+                    v.get(timeout=0)
+                except:
+                    v.set(0)
+                v.set(v.get() + 1)
+
+    for _ in range(4):
+        f = dask_actor_singleton.get('test', create=Act, client=client, ttl_get=0.5)
+        time.sleep(0.1)
+
+    v = dask.distributed.Variable('count', client=client)
+    assert v.get() == 1
+
+
 def test_priority():
     cluster = dask.distributed.LocalCluster(n_workers=1, threads_per_worker=1)
     client = dask.distributed.Client(cluster)

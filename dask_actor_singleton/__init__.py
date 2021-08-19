@@ -102,21 +102,19 @@ def get(name, create, *, client=None, ttl_create=0, ttl_get=0, priority=0):
                 # reference to the actor.
                 var.delete()
 
-                # Create, have lock and no existing, good Actor
-                #future = client.submit(create, actor=True)
-                future = client.submit(_ActorShell, create, actor=True,
+                # Have lock and no existing: create good Actor
+                future_shell = client.submit(_ActorShell, actor=True,
                         priority=priority)
-                # Allow this exception to trickle up __init__ errors
-                actor = future.result()
+                future_act = client.submit(create, actor=True,
+                        priority=priority)
 
-                # Ensure that the inner actor was allocated successfully.
-                # Will raise error if it was not.
-                # Note: dask actor attribute access is implicit and blocking...
-                # so `.future` is a round trip
-                ractor = actor.future.result()
+                # Allow exceptions to trickle up __init__ errors
+                actor, ractor = client.gather([future_shell, future_act])
 
-                # Finally, assign on success
-                var.set(future)
+                # OK, everything is fine. Tell the shell the time of final init,
+                # so that caching times are correct, and return the result.
+                actor.init(future_act).result()
+                var.set(future_shell)
 
     return ractor
 
@@ -163,9 +161,8 @@ class _ActorShell:
     """
     future = None
 
-    def __init__(self, create_fn):
-        client = dask.distributed.get_client()
-        self.future = client.submit(create_fn, actor=True, priority=1e6)
+    def init(self, future):
+        self.future = future
 
         self.singleton_time_create = time.monotonic()
         self.singleton_time_get = self.singleton_time_create
