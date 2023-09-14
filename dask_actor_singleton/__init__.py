@@ -164,6 +164,13 @@ class _ActorShell:
     def init(self, future):
         self.future = future
 
+        # For some reason, with Dask 2023.5.0 inside a docker container for the
+        # format analysis workbench (github.com/galoisinc/faw), this library
+        # does not work unless the future is fetched at least once within
+        # this initialization step. So, while this looks like it doesn't do
+        # anything, it is vital
+        self.future.result()
+
         self.singleton_time_create = time.monotonic()
         self.singleton_time_get = self.singleton_time_create
 

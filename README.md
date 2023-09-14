@@ -28,6 +28,7 @@ dask_actor_singleton.discard('my_actor')
 
 History
 -------
+* 2023-09-14 v1.3.4 release. Fixing compatibility with Dask 2023.5.0 and beyond, and the [FAW](https://github.com/GaloisInc/FAW).
 * 2021-08-19 v1.3.3 release. Caching times start after object creation finishes; not at the start. This matters for objects with long load times.
 * 2021-08-18 v1.3.2 release. Explicitly forget wrapped future.
 * 2021-08-18 v1.3.1 release. Free old actor when re-allocating to potentially reduce memory load.
